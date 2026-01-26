@@ -24,14 +24,67 @@ const io = new Server(server, {
   }
 });
 
-// Хранилище игровых сессий в памяти
-const games = {};
+// Базовое состояние игрока для ботов
+const createEmptyPlayer = (uid) => ({
+    uid,
+    health: 30,
+    mana: { current: 1, max: 1 },
+    hand: [],
+    board: [],
+    deck: [],
+    fatigue: 0
+});
+
+// Хранилище игровых сессий в памяти с 3 предустановленными комнатами
+const games = {
+    'room-test-1': {
+        id: 'room-test-1',
+        status: 'waiting',
+        hostId: 'bot-1',
+        hostName: 'Тренировочный Манекен',
+        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Dummy',
+        currentTurnId: 'bot-1',
+        createdAt: Date.now(),
+        state: {
+            player1: createEmptyPlayer('bot-1'),
+            player2: createEmptyPlayer('')
+        }
+    },
+    'room-test-2': {
+        id: 'room-test-2',
+        status: 'waiting',
+        hostId: 'bot-2',
+        hostName: 'Страж Арены',
+        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Guardian',
+        currentTurnId: 'bot-2',
+        createdAt: Date.now(),
+        state: {
+            player1: createEmptyPlayer('bot-2'),
+            player2: createEmptyPlayer('')
+        }
+    },
+    'room-test-3': {
+        id: 'room-test-3',
+        status: 'waiting',
+        hostId: 'bot-3',
+        hostName: 'Тень Разлома',
+        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Shadow',
+        currentTurnId: 'bot-3',
+        createdAt: Date.now(),
+        state: {
+            player1: createEmptyPlayer('bot-3'),
+            player2: createEmptyPlayer('')
+        }
+    }
+};
 
 io.on('connection', (socket) => {
   console.log('Игрок подключился:', socket.id);
 
   // Отправляем список ожидающих игр при подключении
-  socket.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
+  const waitingGames = Object.values(games).filter(g => g.status === 'waiting');
+  console.log(`Sending ${waitingGames.length} games to new client`);
+  socket.emit('games_list', waitingGames);
 
   // Создание новой игры
   socket.on('create_game', (session) => {
@@ -40,7 +93,9 @@ io.on('connection', (socket) => {
     socket.join(session.id);
     
     // Рассылаем обновленный список игр всем
-    io.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
+    const waiting = Object.values(games).filter(g => g.status === 'waiting');
+    console.log(`Broadcast games list: ${waiting.length} games`);
+    io.emit('games_list', waiting);
     
     // Подтверждаем создание (синхронизируем стейт)
     socket.emit('game_sync', session);
@@ -70,7 +125,6 @@ io.on('connection', (socket) => {
   socket.on('update_game', ({ sessionId, updates }) => {
     const game = games[sessionId];
     if (game) {
-      // Глубокое слияние или поверхностное? Для простоты поверхностное, но state заменяем целиком если он есть
       if (updates.state) {
          game.state = updates.state;
       }
@@ -87,11 +141,9 @@ io.on('connection', (socket) => {
          game.status = updates.status;
       }
       
-      // Можно было бы использовать Object.assign(game, updates), но нужно быть осторожным с вложенностью
-      // Для простоты прототипа:
       Object.assign(game, updates);
 
-      // Рассылаем всем участникам (включая отправителя, для надежной синхронизации)
+      // Рассылаем всем участникам
       io.to(sessionId).emit('game_sync', game);
     }
   });
@@ -107,7 +159,9 @@ io.on('connection', (socket) => {
 
   // Запрос списка игр вручную
   socket.on('get_games_list', () => {
-    socket.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
+    const list = Object.values(games).filter(g => g.status === 'waiting');
+    console.log(`Manual request: sending ${list.length} games`);
+    socket.emit('games_list', list);
   });
 
   socket.on('disconnect', () => {
