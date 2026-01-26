@@ -154,6 +154,16 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Re-join without updating state (fixing eternal waiting bug on reconnect)
+  socket.on('rejoin_game', (sessionId) => {
+    if (games[sessionId]) {
+        console.log(`Игрок ${socket.id} переподключился к столу ${sessionId}`);
+        socket.join(sessionId);
+        // Send current state to the reconnecting player immediately
+        socket.emit('game_sync', games[sessionId]);
+    }
+  });
+
   // Обновление состояния игры
   socket.on('update_game', ({ sessionId, updates }) => {
     const game = games[sessionId];
