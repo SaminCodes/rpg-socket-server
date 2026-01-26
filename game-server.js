@@ -1,217 +1,135 @@
 
-// ЭТОТ ФАЙЛ НУЖНО ЗАПУСТИТЬ ОТДЕЛЬНО: node game-server.js
-// Предварительно: npm install
-
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 
 const app = express();
-// Enable CORS for all routes in Express
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors());
 
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    // Dynamic origin handler to allow all origins while supporting credentials
-    origin: (origin, callback) => {
-      callback(null, true);
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
+    origin: "*", // В продакшене замените на ваш домен
+    methods: ["GET", "POST"]
   }
 });
 
-// Базовое состояние игрока (пустое)
-const createEmptyPlayer = (uid) => ({
-    uid: uid || '',
-    health: 30,
-    mana: { current: 1, max: 1 },
-    hand: [],
-    board: [],
-    deck: [],
-    fatigue: 0
-});
-
-// Хранилище игровых сессий с 3 ПУСТЫМИ столами
-const games = {
-    'table-1': {
-        id: 'table-1',
-        status: 'waiting',
-        hostId: 'system', 
-        hostName: 'Открытый Стол #1',
-        hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
-        currentTurnId: '',
-        createdAt: Date.now(),
-        state: {
-            player1: createEmptyPlayer(''),
-            player2: createEmptyPlayer('')
-        }
-    },
-    'table-2': {
-        id: 'table-2',
-        status: 'waiting',
-        hostId: 'system',
-        hostName: 'Открытый Стол #2',
-        hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
-        currentTurnId: '',
-        createdAt: Date.now(),
-        state: {
-            player1: createEmptyPlayer(''),
-            player2: createEmptyPlayer('')
-        }
-    },
-    'table-3': {
-        id: 'table-3',
-        status: 'waiting',
-        hostId: 'system',
-        hostName: 'Открытый Стол #3',
-        hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
-        currentTurnId: '',
-        createdAt: Date.now(),
-        state: {
-            player1: createEmptyPlayer(''),
-            player2: createEmptyPlayer('')
-        }
-    }
-};
-
-// Функция умного слияния состояния, чтобы игроки не перезаписывали друг друга
-const mergeGameState = (currentState, newUpdates) => {
-    // Если обновлений нет, возвращаем как есть
-    if (!newUpdates) return;
-
-    // 1. Обновление вложенного state (игроков)
-    if (newUpdates.state) {
-        if (!currentState.state) currentState.state = {};
-        
-        // Если прилетел player1, мержим его
-        if (newUpdates.state.player1) {
-            currentState.state.player1 = { 
-                ...currentState.state.player1, 
-                ...newUpdates.state.player1 
-            };
-        }
-        // Если прилетел player2, мержим его
-        if (newUpdates.state.player2) {
-            currentState.state.player2 = { 
-                ...currentState.state.player2, 
-                ...newUpdates.state.player2 
-            };
-        }
-        // Удаляем state из updates, чтобы он не перезаписался целиком ниже
-        delete newUpdates.state;
-    }
-
-    // 2. Обновление остальных полей верхнего уровня (status, turn, etc)
-    Object.assign(currentState, newUpdates);
-};
+// In-memory storage for games
+// In a real production app, use Redis or a database
+const games = new Map();
 
 io.on('connection', (socket) => {
   console.log('Игрок подключился:', socket.id);
 
-  const waitingGames = Object.values(games).filter(g => g.status === 'waiting');
-  socket.emit('games_list', waitingGames);
+  // --- LOBBY LOGIC ---
 
-  // Создание новой игры
-  socket.on('create_game', (session) => {
-    console.log(`Создана игра: ${session.id}`);
-    games[session.id] = session;
-    socket.join(session.id);
-    
-    io.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
-    socket.emit('game_sync', session);
+  // Запрос списка игр
+  socket.on('get_games_list', () => {
+    socket.emit('games_list', Array.from(games.values()));
   });
 
-  // Присоединение к игре
+  // Создание игры
+  socket.on('create_game', (session) => {
+    games.set(session.id, session);
+    // Рассылаем обновленный список всем, кто в лобби (или просто всем подключенным)
+    io.emit('games_list', Array.from(games.values()));
+    
+    // Создатель сразу входит в комнату этой игры
+    socket.join(session.id);
+  });
+
+  // --- GAMEPLAY LOGIC ---
+
+  // Вход в конкретную игру (подписка на обновления)
+  // join_game теперь принимает sessionId и опциональные updates (если игрок присоединяется как guest)
   socket.on('join_game', ({ sessionId, updates }) => {
-    const game = games[sessionId];
+    const game = games.get(sessionId);
     if (game) {
-      console.log(`Игрок ${socket.id} обновляет игру ${sessionId}`);
-      
-      // Используем умное слияние
-      mergeGameState(game, updates);
-      
-      // Логика "занятия стола"
-      if (game.hostId !== 'system' && game.state.player1.uid && !game.state.player2.uid) {
-          console.log(`Стол ${sessionId} занят игроком P1`);
-      }
-      if (game.state.player1.uid && game.state.player2.uid) {
-          console.log(`Стол ${sessionId} теперь полный. Игра активна.`);
+      // Если есть обновления (например, записался второй игрок), применяем их
+      if (updates) {
+        Object.assign(game, updates);
+        // Обновляем состояние в общем списке
+        games.set(sessionId, game); 
+        io.emit('games_list', Array.from(games.values()));
       }
 
       socket.join(sessionId);
-      
-      // Отправляем обновленное состояние ВСЕМ в комнате
-      io.to(sessionId).emit('game_sync', game);
-      
-      // Обновляем список игр
-      io.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
-    } else {
-      socket.emit('error', { message: 'Игра не найдена' });
+      // Отправляем текущее состояние подключившемуся
+      socket.emit('game_sync', game);
+      console.log(`Socket ${socket.id} joined game ${sessionId}`);
     }
   });
 
-  // Re-join without updating state (fixing eternal waiting bug on reconnect)
+  // Переподключение к игре (без изменений данных)
   socket.on('rejoin_game', (sessionId) => {
-    if (games[sessionId]) {
-        console.log(`Игрок ${socket.id} переподключился к столу ${sessionId}`);
-        socket.join(sessionId);
-        // Send current state to the reconnecting player immediately
-        socket.emit('game_sync', games[sessionId]);
-    }
-  });
-
-  // Обновление состояния игры
-  socket.on('update_game', ({ sessionId, updates }) => {
-    const game = games[sessionId];
+    const game = games.get(sessionId);
     if (game) {
-      mergeGameState(game, updates);
-      io.to(sessionId).emit('game_sync', game);
+      socket.join(sessionId);
+      socket.emit('game_sync', game);
     }
   });
 
-  // Удаление/Сброс игры
-  socket.on('delete_game', (sessionId) => {
-    if (games[sessionId]) {
-      if (sessionId.startsWith('table-')) {
-          console.log(`Сброс системного стола ${sessionId}`);
-          games[sessionId] = {
-              id: sessionId,
-              status: 'waiting',
-              hostId: 'system',
-              hostName: `Открытый Стол #${sessionId.split('-')[1]}`,
-              hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
-              currentTurnId: '',
-              createdAt: Date.now(),
-              state: {
-                  player1: createEmptyPlayer(''),
-                  player2: createEmptyPlayer('')
-              }
-          };
-          io.in(sessionId).socketsLeave(sessionId);
-      } else {
-          console.log(`Игра ${sessionId} удалена`);
-          delete games[sessionId];
-      }
+  // Получение конкретной игры (синхронизация по запросу)
+  socket.on('get_game', (sessionId) => {
+    const game = games.get(sessionId);
+    if (game) {
+      socket.emit('game_sync', game);
+    }
+  });
+
+  // Обновление состояния игры (ход, атака, мана и т.д.)
+  socket.on('update_game', ({ sessionId, updates }) => {
+    const game = games.get(sessionId);
+    if (game) {
+      // Глубокое слияние (или поверхностное, в зависимости от структуры)
+      // Для простоты здесь используем Object.assign, но для вложенных state лучше deep merge
+      // В данном случае React-клиент обычно шлет полный state или критические секции
       
-      io.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
+      if (updates.state) {
+         game.state = { ...game.state, ...updates.state };
+      }
+      if (updates.currentTurnId) game.currentTurnId = updates.currentTurnId;
+      if (updates.lastAction) game.lastAction = updates.lastAction;
+      if (updates.status) game.status = updates.status;
+      if (updates.winnerId) game.winnerId = updates.winnerId;
+      if (updates.guestId) game.guestId = updates.guestId;
+      if (updates.guestName) game.guestName = updates.guestName;
+      if (updates.guestAvatar) game.guestAvatar = updates.guestAvatar;
+
+      games.set(sessionId, game);
+      
+      // Рассылаем обновление всем в комнате
+      io.to(sessionId).emit('game_sync', game);
+      
+      // Если статус поменялся (например, finished), обновляем список в лобби
+      if (updates.status) {
+         io.emit('games_list', Array.from(games.values()));
+      }
     }
   });
 
-  socket.on('get_games_list', () => {
-    const list = Object.values(games).filter(g => g.status === 'waiting');
-    socket.emit('games_list', list);
+  // Удаление игры
+  socket.on('delete_game', (sessionId) => {
+    if (games.has(sessionId)) {
+      games.delete(sessionId);
+      io.emit('games_list', Array.from(games.values()));
+      // Можно выкинуть всех из комнаты
+      io.in(sessionId).socketsLeave(sessionId);
+    }
+  });
+
+  // Эмоции / Реакции
+  socket.on('emote', ({ roomId, emoteId, userId }) => {
+    socket.to(roomId).emit('emote', { emoteId, userId });
   });
 
   socket.on('disconnect', () => {
-    console.log('Игрок отключился:', socket.id);
+    // console.log('Игрок отключился:', socket.id);
   });
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
   console.log(`🚀 Игровой сервер запущен на порту ${PORT}`);
 });
