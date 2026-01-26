@@ -24,9 +24,9 @@ const io = new Server(server, {
   }
 });
 
-// Базовое состояние игрока для ботов
+// Базовое состояние игрока (пустое)
 const createEmptyPlayer = (uid) => ({
-    uid,
+    uid: uid || '',
     health: 30,
     mana: { current: 1, max: 1 },
     hand: [],
@@ -35,44 +35,45 @@ const createEmptyPlayer = (uid) => ({
     fatigue: 0
 });
 
-// Хранилище игровых сессий в памяти с 3 предустановленными комнатами
+// Хранилище игровых сессий с 3 ПУСТЫМИ столами
+// hostId: 'system' означает, что стол свободен и первый зашедший станет Player 1
 const games = {
-    'room-test-1': {
-        id: 'room-test-1',
+    'table-1': {
+        id: 'table-1',
         status: 'waiting',
-        hostId: 'bot-1',
-        hostName: 'Тренировочный Манекен',
-        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Dummy',
-        currentTurnId: 'bot-1',
+        hostId: 'system', 
+        hostName: 'Открытый Стол #1',
+        hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
+        currentTurnId: '',
         createdAt: Date.now(),
         state: {
-            player1: createEmptyPlayer('bot-1'),
+            player1: createEmptyPlayer(''),
             player2: createEmptyPlayer('')
         }
     },
-    'room-test-2': {
-        id: 'room-test-2',
+    'table-2': {
+        id: 'table-2',
         status: 'waiting',
-        hostId: 'bot-2',
-        hostName: 'Страж Арены',
-        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Guardian',
-        currentTurnId: 'bot-2',
+        hostId: 'system',
+        hostName: 'Открытый Стол #2',
+        hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
+        currentTurnId: '',
         createdAt: Date.now(),
         state: {
-            player1: createEmptyPlayer('bot-2'),
+            player1: createEmptyPlayer(''),
             player2: createEmptyPlayer('')
         }
     },
-    'room-test-3': {
-        id: 'room-test-3',
+    'table-3': {
+        id: 'table-3',
         status: 'waiting',
-        hostId: 'bot-3',
-        hostName: 'Тень Разлома',
-        hostAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Shadow',
-        currentTurnId: 'bot-3',
+        hostId: 'system',
+        hostName: 'Открытый Стол #3',
+        hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
+        currentTurnId: '',
         createdAt: Date.now(),
         state: {
-            player1: createEmptyPlayer('bot-3'),
+            player1: createEmptyPlayer(''),
             player2: createEmptyPlayer('')
         }
     }
@@ -83,67 +84,57 @@ io.on('connection', (socket) => {
 
   // Отправляем список ожидающих игр при подключении
   const waitingGames = Object.values(games).filter(g => g.status === 'waiting');
-  console.log(`Sending ${waitingGames.length} games to new client`);
   socket.emit('games_list', waitingGames);
 
-  // Создание новой игры
+  // Создание новой игры (пользовательская)
   socket.on('create_game', (session) => {
     console.log(`Создана игра: ${session.id} хост: ${session.hostName}`);
     games[session.id] = session;
     socket.join(session.id);
     
-    // Рассылаем обновленный список игр всем
     const waiting = Object.values(games).filter(g => g.status === 'waiting');
-    console.log(`Broadcast games list: ${waiting.length} games`);
     io.emit('games_list', waiting);
-    
-    // Подтверждаем создание (синхронизируем стейт)
     socket.emit('game_sync', session);
   });
 
-  // Присоединение к игре
+  // Присоединение к игре (или занятие свободного стола)
   socket.on('join_game', ({ sessionId, updates }) => {
     const game = games[sessionId];
     if (game) {
-      console.log(`Игрок ${socket.id} присоединился к игре ${sessionId}`);
-      // Применяем обновления (данные второго игрока, статус active)
+      console.log(`Игрок ${socket.id} обновляет игру ${sessionId}`);
+      
+      // Применяем обновления
       Object.assign(game, updates);
       
+      // Если это был системный стол и теперь у него появился реальный хост (Player 1)
+      if (game.hostId !== 'system' && game.state.player1.uid && !game.state.player2.uid) {
+          // Игра все еще в статусе waiting (ждет P2), но теперь у нее есть владелец
+          console.log(`Стол ${sessionId} занят игроком ${game.hostName}`);
+      }
+
       socket.join(sessionId);
       
       // Отправляем обновленное состояние всем в комнате
       io.to(sessionId).emit('game_sync', game);
       
-      // Обновляем список игр (игра больше не waiting)
+      // Обновляем список игр для всех (чтобы обновились аватарки/статусы столов)
       io.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
     } else {
       socket.emit('error', { message: 'Игра не найдена' });
     }
   });
 
-  // Обновление состояния игры (ходы, атаки)
+  // Обновление состояния игры
   socket.on('update_game', ({ sessionId, updates }) => {
     const game = games[sessionId];
     if (game) {
-      if (updates.state) {
-         game.state = updates.state;
-      }
-      if (updates.lastAction) {
-         game.lastAction = updates.lastAction;
-      }
-      if (updates.currentTurnId) {
-         game.currentTurnId = updates.currentTurnId;
-      }
-      if (updates.winnerId) {
-         game.winnerId = updates.winnerId;
-      }
-      if (updates.status) {
-         game.status = updates.status;
-      }
+      if (updates.state) game.state = updates.state;
+      if (updates.lastAction) game.lastAction = updates.lastAction;
+      if (updates.currentTurnId) game.currentTurnId = updates.currentTurnId;
+      if (updates.winnerId) game.winnerId = updates.winnerId;
+      if (updates.status) game.status = updates.status;
       
       Object.assign(game, updates);
-
-      // Рассылаем всем участникам
       io.to(sessionId).emit('game_sync', game);
     }
   });
@@ -151,16 +142,35 @@ io.on('connection', (socket) => {
   // Удаление игры
   socket.on('delete_game', (sessionId) => {
     if (games[sessionId]) {
-      console.log(`Игра ${sessionId} удалена`);
-      delete games[sessionId];
+      // Если это один из системных столов, мы его не удаляем полностью, а сбрасываем!
+      if (sessionId.startsWith('table-')) {
+          console.log(`Сброс системного стола ${sessionId}`);
+          games[sessionId] = {
+              id: sessionId,
+              status: 'waiting',
+              hostId: 'system',
+              hostName: `Открытый Стол #${sessionId.split('-')[1]}`,
+              hostAvatar: 'https://cdn-icons-png.flaticon.com/512/10613/10613919.png',
+              currentTurnId: '',
+              createdAt: Date.now(),
+              state: {
+                  player1: createEmptyPlayer(''),
+                  player2: createEmptyPlayer('')
+              }
+          };
+          // Очищаем комнату сокетов (выкидываем всех)
+          io.in(sessionId).socketsLeave(sessionId);
+      } else {
+          console.log(`Игра ${sessionId} удалена`);
+          delete games[sessionId];
+      }
+      
       io.emit('games_list', Object.values(games).filter(g => g.status === 'waiting'));
     }
   });
 
-  // Запрос списка игр вручную
   socket.on('get_games_list', () => {
     const list = Object.values(games).filter(g => g.status === 'waiting');
-    console.log(`Manual request: sending ${list.length} games`);
     socket.emit('games_list', list);
   });
 
