@@ -43,27 +43,8 @@ const getEnrichedGamesList = () => {
   });
 };
 
-const cleanupEmptyGames = () => {
-  let changed = false;
-  const now = Date.now();
-  for (const [id, game] of games.entries()) {
-    const room = io.sockets.adapter.rooms.get(id);
-    // Если в комнате 0 сокетов
-    // Для активных игр даем больше времени на переподключение (120 сек), для пустых - 30 сек
-    const gracePeriod = game.status === 'active' ? 120000 : 30000;
-    
-    if (!room || room.size === 0) {
-      if (now - game.createdAt > gracePeriod) {
-        games.delete(id);
-        changed = true;
-        console.log(`[Server] Room ${id} deleted (abandoned)`);
-      }
-    }
-  }
-  if (changed) io.emit('games_list', getEnrichedGamesList());
-};
-
-setInterval(cleanupEmptyGames, 15000);
+// ВНИМАНИЕ: Логика cleanupEmptyGames удалена по требованию пользователя. 
+// Комнаты теперь не удаляются автоматически, даже если они пусты.
 
 io.on('connection', (socket) => {
   console.log(`[Server] Socket connected: ${socket.id}`);
@@ -91,7 +72,7 @@ io.on('connection', (socket) => {
     const game = games.get(sessionId);
     if (game) {
       if (updates) {
-        // Merge updates carefully to not lose server-side metadata
+        // Объединяем обновления, не затирая метаданные сервера
         Object.assign(game, updates);
         games.set(sessionId, game); 
       }
@@ -130,7 +111,7 @@ io.on('connection', (socket) => {
       games.set(sessionId, game);
       io.to(sessionId).emit('game_sync', game);
       
-      // Notify all about the update (for status badges etc)
+      // Рассылаем обновленный список всем, чтобы видеть изменения статусов и HP
       io.emit('games_list', getEnrichedGamesList());
     }
   });
@@ -150,6 +131,7 @@ io.on('connection', (socket) => {
       console.log(`[Server] User ${meta.userName} disconnected from ${meta.sessionId}`);
       socketMetadata.delete(socket.id);
       
+      // Задержка, чтобы сокет успел выйти из комнат адаптера
       setTimeout(() => {
         io.emit('games_list', getEnrichedGamesList());
       }, 1000);
