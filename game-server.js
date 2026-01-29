@@ -41,10 +41,11 @@ const getEnrichedGamesList = () => {
   });
 };
 
-// АВТОМАТИЧЕСКАЯ ОЧИСТКА ОТКЛЮЧЕНА НАВСЕГДА.
-// Столы хранятся в памяти до перезагрузки сервера или ручного удаления.
+// Столы хранятся в памяти перманентно до явной команды удаления или рестарта сервера.
 
 io.on('connection', (socket) => {
+  console.log(`[Server] Connected: ${socket.id}`);
+
   socket.on('get_games_list', () => {
     socket.emit('games_list', getEnrichedGamesList());
   });
@@ -61,14 +62,17 @@ io.on('connection', (socket) => {
     const game = games.get(sessionId);
     if (game) {
       if (updates) {
+        // Частичное обновление данных комнаты (например, вход гостя)
         Object.assign(game, updates);
         games.set(sessionId, game); 
       }
+      
       socketMetadata.set(socket.id, { 
         userId: updates?.guestId || game.guestId || 'spectator', 
         userName: updates?.guestName || game.guestName || 'Наблюдатель', 
         sessionId: sessionId 
       });
+
       socket.join(sessionId);
       socket.emit('game_sync', game);
       io.emit('games_list', getEnrichedGamesList());
@@ -98,6 +102,7 @@ io.on('connection', (socket) => {
   socket.on('delete_game', (sessionId) => {
     if (games.has(sessionId)) {
       games.delete(sessionId);
+      console.log(`[Server] Game ${sessionId} manually deleted`);
       io.emit('games_list', getEnrichedGamesList());
       io.in(sessionId).socketsLeave(sessionId);
     }
@@ -114,5 +119,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 Игровой сервер запущен на порту ${PORT}`);
+  console.log(`🚀 Сервер Арены готов к работе`);
 });
