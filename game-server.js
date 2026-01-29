@@ -49,8 +49,11 @@ const cleanupEmptyGames = () => {
   for (const [id, game] of games.entries()) {
     const room = io.sockets.adapter.rooms.get(id);
     // Если в комнате 0 сокетов и она создана более 30 секунд назад
+    // Для активных игр даем больше времени на переподключение (120 сек)
+    const gracePeriod = game.status === 'active' ? 120000 : 30000;
+    
     if (!room || room.size === 0) {
-      if (now - game.createdAt > 30000) {
+      if (now - game.createdAt > gracePeriod) {
         games.delete(id);
         changed = true;
         console.log(`[Server] Room ${id} deleted (abandoned)`);
@@ -130,10 +133,8 @@ io.on('connection', (socket) => {
       games.set(sessionId, game);
       io.to(sessionId).emit('game_sync', game);
       
-      // Если поменялся статус (игра началась), обновляем глобальный список
-      if (updates.status) {
-         io.emit('games_list', getEnrichedGamesList());
-      }
+      // Обновляем список, чтобы другие игроки видели изменение статуса или HP героев
+      io.emit('games_list', getEnrichedGamesList());
     }
   });
 
