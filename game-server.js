@@ -16,7 +16,6 @@ const io = new Server(server, {
 });
 
 const games = new Map();
-// Хранилище для маппинга сокета к пользователю и сессии
 const socketMetadata = new Map();
 
 const getEnrichedGamesList = () => {
@@ -24,7 +23,6 @@ const getEnrichedGamesList = () => {
     const room = io.sockets.adapter.rooms.get(game.id);
     const onlineCount = room ? room.size : 0;
     
-    // Собираем имена тех, кто в комнате прямо сейчас
     const onlineNames = [];
     if (room) {
       for (const socketId of room) {
@@ -38,17 +36,15 @@ const getEnrichedGamesList = () => {
     return {
       ...game,
       onlineCount,
-      onlineNames: [...new Set(onlineNames)] // Убираем дубли
+      onlineNames: [...new Set(onlineNames)]
     };
   });
 };
 
-// ВНИМАНИЕ: Логика cleanupEmptyGames удалена по требованию пользователя. 
-// Комнаты теперь не удаляются автоматически, даже если они пусты.
+// АВТОМАТИЧЕСКАЯ ОЧИСТКА ОТКЛЮЧЕНА НАВСЕГДА.
+// Столы хранятся в памяти до перезагрузки сервера или ручного удаления.
 
 io.on('connection', (socket) => {
-  console.log(`[Server] Socket connected: ${socket.id}`);
-
   socket.on('get_games_list', () => {
     socket.emit('games_list', getEnrichedGamesList());
   });
@@ -56,15 +52,8 @@ io.on('connection', (socket) => {
   socket.on('create_game', (session) => {
     session.createdAt = Date.now();
     games.set(session.id, session);
-    
-    socketMetadata.set(socket.id, { 
-      userId: session.hostId, 
-      userName: session.hostName, 
-      sessionId: session.id 
-    });
-    
+    socketMetadata.set(socket.id, { userId: session.hostId, userName: session.hostName, sessionId: session.id });
     socket.join(session.id);
-    console.log(`[Server] Room ${session.id} created by ${session.hostName}`);
     io.emit('games_list', getEnrichedGamesList());
   });
 
@@ -72,17 +61,14 @@ io.on('connection', (socket) => {
     const game = games.get(sessionId);
     if (game) {
       if (updates) {
-        // Объединяем обновления, не затирая метаданные сервера
         Object.assign(game, updates);
         games.set(sessionId, game); 
       }
-      
       socketMetadata.set(socket.id, { 
         userId: updates?.guestId || game.guestId || 'spectator', 
         userName: updates?.guestName || game.guestName || 'Наблюдатель', 
         sessionId: sessionId 
       });
-
       socket.join(sessionId);
       socket.emit('game_sync', game);
       io.emit('games_list', getEnrichedGamesList());
@@ -94,15 +80,10 @@ io.on('connection', (socket) => {
     if (game) {
       if (updates.state) {
         const mergedState = { ...game.state };
-        if (updates.state.player1) {
-          mergedState.player1 = { ...mergedState.player1, ...updates.state.player1 };
-        }
-        if (updates.state.player2) {
-          mergedState.player2 = { ...mergedState.player2, ...updates.state.player2 };
-        }
+        if (updates.state.player1) mergedState.player1 = { ...mergedState.player1, ...updates.state.player1 };
+        if (updates.state.player2) mergedState.player2 = { ...mergedState.player2, ...updates.state.player2 };
         game.state = mergedState;
       }
-      
       if (updates.currentTurnId) game.currentTurnId = updates.currentTurnId;
       if (updates.lastAction) game.lastAction = updates.lastAction;
       if (updates.status) game.status = updates.status;
@@ -110,8 +91,6 @@ io.on('connection', (socket) => {
 
       games.set(sessionId, game);
       io.to(sessionId).emit('game_sync', game);
-      
-      // Рассылаем обновленный список всем, чтобы видеть изменения статусов и HP
       io.emit('games_list', getEnrichedGamesList());
     }
   });
@@ -119,7 +98,6 @@ io.on('connection', (socket) => {
   socket.on('delete_game', (sessionId) => {
     if (games.has(sessionId)) {
       games.delete(sessionId);
-      console.log(`[Server] Room ${sessionId} manually deleted`);
       io.emit('games_list', getEnrichedGamesList());
       io.in(sessionId).socketsLeave(sessionId);
     }
@@ -128,13 +106,8 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const meta = socketMetadata.get(socket.id);
     if (meta) {
-      console.log(`[Server] User ${meta.userName} disconnected from ${meta.sessionId}`);
       socketMetadata.delete(socket.id);
-      
-      // Задержка, чтобы сокет успел выйти из комнат адаптера
-      setTimeout(() => {
-        io.emit('games_list', getEnrichedGamesList());
-      }, 1000);
+      setTimeout(() => io.emit('games_list', getEnrichedGamesList()), 1000);
     }
   });
 });
