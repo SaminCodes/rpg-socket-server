@@ -33,16 +33,23 @@ const getEnrichedGamesList = () => {
       }
     }
 
-    // ✓ ИСПРАВЛЕНО: Убедимся что guestName и guestId заполнены
-    // Если player2 есть в состоянии, используем его данные
+    // Ensure all required fields are present
     let enrichedGame = {
       ...game,
       onlineCount,
-      onlineNames: [...new Set(onlineNames)]
+      onlineNames: [...new Set(onlineNames)],
+      // Ensure these fields always exist
+      guestId: game.guestId || '',
+      guestName: game.guestName || '',
+      guestAvatar: game.guestAvatar || '',
+      hostId: game.hostId || '',
+      hostName: game.hostName || '',
+      hostAvatar: game.hostAvatar || '',
+      status: game.status || 'waiting'
     };
     
-    // Если player2 связан но guestId не заполнен на root уровне, возьмем из состояния
-    if (game.state?.player2?.uid && !enrichedGame.guestId) {
+    // If player2 is connected but guestId not at root level, get from state
+    if (game.state?.player2?.uid && !game.guestId) {
       enrichedGame.guestId = game.state.player2.uid;
     }
     
@@ -88,8 +95,14 @@ io.on('connection', (socket) => {
       games.set(session.id, session);
       socketMetadata.set(socket.id, { userId: session.hostId, userName: session.hostName, sessionId: session.id });
       socket.join(session.id);
-      io.emit('games_list', getEnrichedGamesList());
+      
+      // Prepare enriched games list
+      const enrichedList = getEnrichedGamesList();
+      
+      // Send to ALL connected clients (including the creator)
+      io.emit('games_list', enrichedList);
       console.log(`[+ Server] Game created: ${session.id} by ${session.hostName}`);
+      console.log(`[+ Server] Broadcasting updated list (${enrichedList.length} games) to all clients`);
     } catch (e) {
       console.error(`[✗ Server] Error creating game:`, e.message);
     }
