@@ -108,7 +108,8 @@ io.on('connection', (socket) => {
       });
 
       socket.join(sessionId);
-      socket.emit('game_sync', game);
+      // ✓ ИСПРАВЛЕНО: отправляем игру ВСЕм в комнате, не только новому игроку
+      io.to(sessionId).emit('game_sync', game);
       io.emit('games_list', getEnrichedGamesList());
       console.log(`[+ Server] Player joined game: ${sessionId}`);
     } catch (e) {
