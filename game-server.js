@@ -17,9 +17,23 @@ const io = new Server(server, {
 
 const games = new Map();
 const socketMetadata = new Map();
+const GAME_TIMEOUT_MS = 5 * 60 * 1000; // Remove games waiting for 5 minutes (likely broken)
 
 const getEnrichedGamesList = () => {
-  return Array.from(games.values()).map(game => {
+  const now = Date.now();
+  const validGames = [];
+  
+  // Remove expired games that have been waiting too long
+  for (const [gameId, game] of games.entries()) {
+    if (game.status === 'waiting' && (now - game.createdAt) > GAME_TIMEOUT_MS) {
+      console.log(`[✗ Server] Removing expired waiting room: ${gameId}`);
+      games.delete(gameId);
+      continue;
+    }
+    validGames.push(game);
+  }
+
+  return validGames.map(game => {
     const room = io.sockets.adapter.rooms.get(game.id);
     const onlineCount = room ? room.size : 0;
     
@@ -55,6 +69,18 @@ const getEnrichedGamesList = () => {
     
     return enrichedGame;
   });
+};
+
+// Function to broadcast games list to ALL connected clients
+const broadcastGamesList = () => {
+  try {
+    const enrichedList = getEnrichedGamesList();
+    console.log(`[■ Server] Broadcasting ${enrichedList.length} games to all sockets`);
+    // Use io.sockets.emit to reach all connected clients
+    io.sockets.emit('games_list', enrichedList);
+  } catch (e) {
+    console.error(`[✗ Server] Error broadcasting games list:`, e.message);
+  }
 };
 
 io.on('connection', (socket) => {
@@ -96,13 +122,14 @@ io.on('connection', (socket) => {
       socketMetadata.set(socket.id, { userId: session.hostId, userName: session.hostName, sessionId: session.id });
       socket.join(session.id);
       
-      // Prepare enriched games list
-      const enrichedList = getEnrichedGamesList();
-      
-      // Send to ALL connected clients (including the creator)
-      io.emit('games_list', enrichedList);
       console.log(`[+ Server] Game created: ${session.id} by ${session.hostName}`);
-      console.log(`[+ Server] Broadcasting updated list (${enrichedList.length} games) to all clients`);
+      
+      // Broadcast updated list to ALL connected clients (not just creator)
+      broadcastGamesList();
+      
+      // Also send game_sync to the creator
+      socket.emit('game_sync', session);
+      console.log(`[+ Server] Creator notified of game: ${session.id}`);
     } catch (e) {
       console.error(`[✗ Server] Error creating game:`, e.message);
     }
@@ -130,9 +157,13 @@ io.on('connection', (socket) => {
       });
 
       socket.join(sessionId);
-      // ✓ ИСПРАВЛЕНО: отправляем игру ВСЕм в комнате, не только новому игроку
+      
+      // Send updated game state to all players in this room
       io.to(sessionId).emit('game_sync', game);
-      io.emit('games_list', getEnrichedGamesList());
+      
+      // Broadcast updated list to ALL connected clients
+      broadcastGamesList();
+      
       console.log(`[+ Server] Player joined game: ${sessionId}`);
     } catch (e) {
       console.error(`[✗ Server] Error joining game:`, e.message);
@@ -148,7 +179,7 @@ io.on('connection', (socket) => {
       }
       socket.join(sessionId);
       socket.emit('game_sync', game);
-      io.emit('games_list', getEnrichedGamesList());
+      broadcastGamesList();
       console.log(`[↻ Server] Player rejoined game: ${sessionId}`);
     } catch (e) {
       console.error(`[✗ Server] Error rejoining game:`, e.message);
@@ -176,7 +207,7 @@ io.on('connection', (socket) => {
 
       games.set(sessionId, game);
       io.to(sessionId).emit('game_sync', game);
-      io.emit('games_list', getEnrichedGamesList());
+      broadcastGamesList();
     } catch (e) {
       console.error(`[✗ Server] Error updating game ${sessionId}:`, e.message);
     }
@@ -187,7 +218,7 @@ io.on('connection', (socket) => {
       if (games.has(sessionId)) {
         games.delete(sessionId);
         console.log(`[✗ Server] Game ${sessionId} deleted`);
-        io.emit('games_list', getEnrichedGamesList());
+        broadcastGamesList();
         io.in(sessionId).socketsLeave(sessionId);
       }
     } catch (e) {
@@ -201,7 +232,7 @@ io.on('connection', (socket) => {
       if (meta) {
         console.log(`[✗ Server] Player disconnected: ${meta.userName} (${reason})`);
         socketMetadata.delete(socket.id);
-        io.emit('games_list', getEnrichedGamesList());
+        broadcastGamesList();
       }
     } catch (e) {
       console.error(`[✗ Server] Error on disconnect:`, e.message);
