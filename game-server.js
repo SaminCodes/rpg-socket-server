@@ -33,11 +33,20 @@ const getEnrichedGamesList = () => {
       }
     }
 
-    return {
+    // ✓ ИСПРАВЛЕНО: Убедимся что guestName и guestId заполнены
+    // Если player2 есть в состоянии, используем его данные
+    let enrichedGame = {
       ...game,
       onlineCount,
       onlineNames: [...new Set(onlineNames)]
     };
+    
+    // Если player2 связан но guestId не заполнен на root уровне, возьмем из состояния
+    if (game.state?.player2?.uid && !enrichedGame.guestId) {
+      enrichedGame.guestId = game.state.player2.uid;
+    }
+    
+    return enrichedGame;
   });
 };
 
