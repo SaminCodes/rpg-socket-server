@@ -112,6 +112,23 @@ io.on('connection', (socket) => {
       if (updates.status) game.status = updates.status;
       if (updates.winnerId) game.winnerId = updates.winnerId;
 
+      // ✓ ИСПРАВЛЕНО: Автоматически начинаем игру когда оба игрока завершили муллиган
+      if (updates.state?.player1?.mulliganDone !== undefined || updates.state?.player2?.mulliganDone !== undefined) {
+        const bothPlayersDone = game.state.player1.mulliganDone && game.state.player2.mulliganDone;
+        if (bothPlayersDone && !game.lastAction) {
+          console.log(`[Server] Both players completed mulligan for game ${sessionId}, starting game...`);
+          // Set initial turn if not already set
+          if (!game.currentTurnId) {
+            game.currentTurnId = game.hostId;
+          }
+          // Add initial action to trigger game start
+          game.lastAction = {
+            type: 'game_start',
+            timestamp: Date.now()
+          };
+        }
+      }
+
       games.set(sessionId, game);
 
       // ✓ ИСПРАВЛЕНО: Отправляем обновление ВСЕМ игрокам в комнате
@@ -128,7 +145,9 @@ io.on('connection', (socket) => {
       if (updates.state?.player1?.mulliganDone !== undefined || updates.state?.player2?.mulliganDone !== undefined) {
         console.log(`[Server] Mulligan update for game ${sessionId}:`, {
           player1Done: game.state.player1.mulliganDone,
-          player2Done: game.state.player2.mulliganDone
+          player2Done: game.state.player2.mulliganDone,
+          bothDone: bothPlayersDone,
+          gameStarted: !!game.lastAction
         });
       }
     }
