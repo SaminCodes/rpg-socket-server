@@ -73,8 +73,19 @@ io.on('connection', (socket) => {
       });
 
       socket.join(sessionId);
-      socket.emit('game_sync', game);
+
+      // ✓ ИСПРАВЛЕНО: Отправляем обновление ВСЕМ игрокам в комнате, а не только новому игроку
+      const room = io.sockets.adapter.rooms.get(sessionId);
+      if (room) {
+        for (const socketId of room) {
+          io.to(socketId).emit('game_sync', game);
+        }
+      }
+
       io.emit('games_list', getEnrichedGamesList());
+
+      // ✓ ИСПРАВЛЕНО: Логируем присоединение к игре
+      console.log(`[Server] Player joined game ${sessionId}, broadcasting to ${room ? room.size : 0} players`);
     }
   });
 
@@ -102,8 +113,24 @@ io.on('connection', (socket) => {
       if (updates.winnerId) game.winnerId = updates.winnerId;
 
       games.set(sessionId, game);
-      io.to(sessionId).emit('game_sync', game);
+
+      // ✓ ИСПРАВЛЕНО: Отправляем обновление ВСЕМ игрокам в комнате
+      const room = io.sockets.adapter.rooms.get(sessionId);
+      if (room) {
+        for (const socketId of room) {
+          io.to(socketId).emit('game_sync', game);
+        }
+      }
+
       io.emit('games_list', getEnrichedGamesList());
+
+      // ✓ ИСПРАВЛЕНО: Логируем обновление муллигана для отладки
+      if (updates.state?.player1?.mulliganDone !== undefined || updates.state?.player2?.mulliganDone !== undefined) {
+        console.log(`[Server] Mulligan update for game ${sessionId}:`, {
+          player1Done: game.state.player1.mulliganDone,
+          player2Done: game.state.player2.mulliganDone
+        });
+      }
     }
   });
 
