@@ -1,19 +1,33 @@
 {
-  "name": "razlom-game-server",
-  "version": "1.0.0",
-  "description": "Card game server for Razlom",
-  "main": "game-server.js",
+  "name": "copy-of-rp-haven---ламповый-хаб",
+  "private": true,
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "node game-server.js",
-    "dev": "node game-server.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "socket.io": "^4.8.3",
-    "cors": "^2.8.5"
+    "@google/genai": "^1.38.0",
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
+    "firebase": "^10.13.0",
+    "framer-motion": "^12.34.3",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.0",
+    "lucide-react": "^0.575.0",
+    "peerjs": "^1.5.5",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "socket.io-client": "^4.8.3",
+    "use-sound": "^5.0.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
   }
 }
