@@ -17,12 +17,14 @@ const io = new Server(server, {
 
 const games = new Map();
 const socketMetadata = new Map();
+// Matchmaking queue - stores users looking for opponents
+const matchmakingQueue = new Set();
 
 const getEnrichedGamesList = () => {
   return Array.from(games.values()).map(game => {
     const room = io.sockets.adapter.rooms.get(game.id);
     const onlineCount = room ? room.size : 0;
-    
+
     const onlineNames = [];
     if (room) {
       for (const socketId of room) {
@@ -118,9 +120,106 @@ io.on('connection', (socket) => {
     const meta = socketMetadata.get(socket.id);
     if (meta) {
       socketMetadata.delete(socket.id);
+      // Remove from matchmaking queue if present
+      matchmakingQueue.delete(socket.id);
+      // Update matchmaking count
+      io.emit('matchmaking_count', matchmakingQueue.size);
       // Уменьшена задержка обновления списка при отключении
       io.emit('games_list', getEnrichedGamesList());
     }
+  });
+
+  // Matchmaking system
+  socket.on('join_matchmaking', (userData) => {
+    console.log(`[Server] ${userData.userName} (${socket.id}) joined matchmaking queue`);
+
+    // Add to queue
+    matchmakingQueue.add(socket.id);
+    socketMetadata.set(socket.id, {
+      userId: userData.userId,
+      userName: userData.userName,
+      userAvatar: userData.userAvatar,
+      isInMatchmaking: true
+    });
+
+    // Broadcast updated count
+    io.emit('matchmaking_count', matchmakingQueue.size);
+
+    // Try to find a match
+    if (matchmakingQueue.size >= 2) {
+      const players = Array.from(matchmakingQueue);
+      const player1SocketId = players[0];
+      const player2SocketId = players[1];
+
+      const player1Meta = socketMetadata.get(player1SocketId);
+      const player2Meta = socketMetadata.get(player2SocketId);
+
+      if (player1Meta && player2Meta) {
+        // Create a new game session
+        const gameId = Math.random().toString(36).substr(2, 9);
+        const newSession = {
+          id: gameId,
+          status: 'active',
+          hostId: player1Meta.userId,
+          hostName: player1Meta.userName,
+          hostAvatar: player1Meta.userAvatar,
+          guestId: player2Meta.userId,
+          guestName: player2Meta.userName,
+          guestAvatar: player2Meta.userAvatar,
+          currentTurnId: player1Meta.userId,
+          createdAt: Date.now(),
+          state: {
+            player1: { uid: player1Meta.userId, health: 30, mana: { current: 1, max: 1 }, hand: [], board: [], deck: [], fatigue: 0, mulliganDone: false },
+            player2: { uid: player2Meta.userId, health: 30, mana: { current: 0, max: 0 }, hand: [], board: [], deck: [], fatigue: 0, mulliganDone: false }
+          }
+        };
+
+        games.set(gameId, newSession);
+
+        // Remove both players from queue
+        matchmakingQueue.delete(player1SocketId);
+        matchmakingQueue.delete(player2SocketId);
+
+        // Update metadata
+        socketMetadata.set(player1SocketId, { ...player1Meta, sessionId: gameId, isInMatchmaking: false });
+        socketMetadata.set(player2SocketId, { ...player2Meta, sessionId: gameId, isInMatchmaking: false });
+
+        // Join both players to the game room
+        io.to(player1SocketId).socketsJoin(gameId);
+        io.to(player2SocketId).socketsJoin(gameId);
+
+        // Notify both players
+        io.to(player1SocketId).emit('match_found', newSession);
+        io.to(player2SocketId).emit('match_found', newSession);
+
+        // Broadcast updated counts
+        io.emit('matchmaking_count', matchmakingQueue.size);
+        io.emit('games_list', getEnrichedGamesList());
+
+        console.log(`[Server] Match found! Created game ${gameId} between ${player1Meta.userName} and ${player2Meta.userName}`);
+      }
+    }
+  });
+
+  socket.on('leave_matchmaking', () => {
+    if (matchmakingQueue.has(socket.id)) {
+      matchmakingQueue.delete(socket.id);
+      console.log(`[Server] ${socket.id} left matchmaking queue`);
+
+      // Update metadata
+      const meta = socketMetadata.get(socket.id);
+      if (meta) {
+        socketMetadata.set(socket.id, { ...meta, isInMatchmaking: false });
+      }
+
+      // Broadcast updated count
+      io.emit('matchmaking_count', matchmakingQueue.size);
+    }
+  });
+
+  // Request current matchmaking count
+  socket.on('get_matchmaking_count', () => {
+    socket.emit('matchmaking_count', matchmakingQueue.size);
   });
 });
 
