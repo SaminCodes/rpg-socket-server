@@ -155,18 +155,18 @@ io.on('connection', (socket) => {
       const player2Meta = socketMetadata.get(player2SocketId);
 
       if (player1Meta && player2Meta) {
-        // Create a new game session
+        // Create a new game session - start with mulligan phase
         const gameId = Math.random().toString(36).substr(2, 9);
         const newSession = {
           id: gameId,
-          status: 'active',
+          status: 'active',  // Status is active but both players need to do mulligan first
           hostId: player1Meta.userId,
           hostName: player1Meta.userName,
           hostAvatar: player1Meta.userAvatar,
           guestId: player2Meta.userId,
           guestName: player2Meta.userName,
           guestAvatar: player2Meta.userAvatar,
-          currentTurnId: player1Meta.userId,
+          currentTurnId: player1Meta.userId,  // Player 1 goes first after mulligan
           createdAt: Date.now(),
           state: {
             player1: { uid: player1Meta.userId, health: 30, mana: { current: 1, max: 1 }, hand: [], board: [], deck: [], fatigue: 0, heroAbility: null, mulliganDone: false },
