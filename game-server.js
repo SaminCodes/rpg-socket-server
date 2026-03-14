@@ -169,8 +169,8 @@ io.on('connection', (socket) => {
           currentTurnId: player1Meta.userId,
           createdAt: Date.now(),
           state: {
-            player1: { uid: player1Meta.userId, health: 30, mana: { current: 1, max: 1 }, hand: [], board: [], deck: [], fatigue: 0, mulliganDone: false },
-            player2: { uid: player2Meta.userId, health: 30, mana: { current: 0, max: 0 }, hand: [], board: [], deck: [], fatigue: 0, mulliganDone: false }
+            player1: { uid: player1Meta.userId, health: 30, mana: { current: 1, max: 1 }, hand: [], board: [], deck: [], fatigue: 0, heroAbility: null, mulliganDone: false },
+            player2: { uid: player2Meta.userId, health: 30, mana: { current: 0, max: 0 }, hand: [], board: [], deck: [], fatigue: 0, heroAbility: null, mulliganDone: false }
           }
         };
 
