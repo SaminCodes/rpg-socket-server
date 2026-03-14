@@ -1,7 +1,7 @@
 {
-  "name": "Razlom",
+  "name": "copy-of-rp-haven---ламповый-хаб",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,7 @@
   "dependencies": {
     "@google/genai": "^1.38.0",
     "@types/d3": "^7.4.3",
-    "cors": "^2.8.6",
     "d3": "^7.9.0",
-    "express": "^5.2.1",
     "firebase": "^10.13.0",
     "framer-motion": "^12.34.3",
     "html2canvas": "^1.4.1",
@@ -23,7 +21,6 @@
     "peerjs": "^1.5.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "use-sound": "^5.0.0"
   },
