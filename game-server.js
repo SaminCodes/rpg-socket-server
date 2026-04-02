@@ -120,7 +120,6 @@ io.on('connection', (socket) => {
         return;
       }
       session.createdAt = Date.now();
-      session.hasStarted = false;
       games.set(session.id, session);
       socketMetadata.set(socket.id, { userId: session.hostId, userName: session.hostName, sessionId: session.id });
       socket.join(session.id);
@@ -179,17 +178,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('rejoin_game', (sessionId) => {
+  socket.on('rejoin_game', (data) => {
     try {
+      const sessionId = typeof data === 'string' ? data : data?.sessionId;
+      const userData = typeof data === 'object' ? data?.userData : null;
+      
       const game = games.get(sessionId);
       if (!game) {
         console.warn(`[! Server] Cannot rejoin: Game ${sessionId} not found`);
         return;
       }
+      
       socket.join(sessionId);
+      if (userData) {
+        socketMetadata.set(socket.id, { 
+          userId: userData.userId, 
+          userName: userData.userName, 
+          sessionId: sessionId 
+        });
+      }
+      
       socket.emit('game_sync', game);
       broadcastGamesList();
-      console.log(`[↻ Server] Player rejoined game: ${sessionId}`);
+      console.log(`[↻ Server] Player rejoined game: ${sessionId} (${userData?.userName || socket.id})`);
     } catch (e) {
       console.error(`[✗ Server] Error rejoining game:`, e.message);
     }
@@ -207,15 +218,16 @@ io.on('connection', (socket) => {
         const mergedState = { ...game.state };
         if (updates.state.player1) mergedState.player1 = { ...mergedState.player1, ...updates.state.player1 };
         if (updates.state.player2) mergedState.player2 = { ...mergedState.player2, ...updates.state.player2 };
-        updates.state = mergedState;
+        game.state = mergedState;
       }
-      
-      Object.assign(game, updates);
+      if (updates.currentTurnId !== undefined) game.currentTurnId = updates.currentTurnId;
+      if (updates.lastAction) game.lastAction = updates.lastAction;
+      if (updates.status) game.status = updates.status;
+      if (updates.winnerId) game.winnerId = updates.winnerId;
 
       // Auto-start game when both players finish mulligan
       const bothPlayersDone = game.state?.player1?.mulliganDone && game.state?.player2?.mulliganDone;
-      if (bothPlayersDone && !game.hasStarted) {
-        game.hasStarted = true;
+      if (bothPlayersDone && (!game.lastAction || game.lastAction.type !== 'game_start')) {
         game.currentTurnId = game.state.player1.uid; // Player 1 goes first
         game.lastAction = { type: 'game_start', timestamp: Date.now() };
         console.log(`[▶ Server] Game ${sessionId} started automatically after mulligan`);
@@ -274,7 +286,6 @@ io.on('connection', (socket) => {
           guestAvatar: player2.userAvatar || '',
           currentTurnId: player1.userId,
           createdAt: Date.now(),
-          hasStarted: false,
           state: {
             player1: { uid: player1.userId, health: 30, mana: { current: 1, max: 1 }, hand: [], board: [], deck: [], fatigue: 0, mulliganDone: false },
             player2: { uid: player2.userId, health: 30, mana: { current: 0, max: 0 }, hand: [], board: [], deck: [], fatigue: 0, mulliganDone: false }
