@@ -244,6 +244,57 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('confirm_mulligan', ({ sessionId, userId, statePatch }) => {
+    try {
+      const game = games.get(sessionId);
+      if (!game) {
+        socket.emit('confirm_mulligan_ack', { ok: false, error: 'Game not found' });
+        return;
+      }
+
+      normalizeGame(game);
+
+      const meta = socketMeta.get(socket.id);
+      const resolvedUserId = userId || meta?.userId || '';
+
+      let playerKey = null;
+      if (resolvedUserId && game.state.player1.uid === resolvedUserId) playerKey = 'player1';
+      else if (resolvedUserId && game.state.player2.uid === resolvedUserId) playerKey = 'player2';
+      else if (!game.state.player1.uid && resolvedUserId) {
+        game.state.player1.uid = resolvedUserId;
+        game.hostId = resolvedUserId;
+        playerKey = 'player1';
+      } else if (!game.state.player2.uid && resolvedUserId) {
+        game.state.player2.uid = resolvedUserId;
+        game.guestId = resolvedUserId;
+        playerKey = 'player2';
+      }
+
+      if (!playerKey) {
+        socket.emit('confirm_mulligan_ack', { ok: false, error: 'Player slot not found' });
+        return;
+      }
+
+      if (statePatch) {
+        game.state[playerKey] = mergePlayer(game.state[playerKey], statePatch);
+      }
+      game.state[playerKey].mulliganDone = true;
+
+      saveGame(game);
+      emitGameSync(sessionId);
+      broadcastGamesList();
+
+      socket.emit('confirm_mulligan_ack', {
+        ok: true,
+        phase: game.phase,
+        bothReady: !!(game.state.player1.mulliganDone && game.state.player2.mulliganDone)
+      });
+    } catch (err) {
+      console.error('[Server] confirm_mulligan error', err);
+      socket.emit('confirm_mulligan_ack', { ok: false, error: String(err) });
+    }
+  });
+
   socket.on('update_game', ({ sessionId, updates }) => {
     try {
       const game = games.get(sessionId);
